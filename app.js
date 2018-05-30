@@ -1,6 +1,7 @@
 var restify = require('restify');
 var builder = require('botbuilder');
-var request = require('request');
+var teams = require('botbuilder-teams');
+const request = require('request');
 
 // Setup Restify Server
 var server = restify.createServer();
@@ -9,7 +10,7 @@ server.listen(process.env.port || process.env.PORT || 3978, function () {
 });
 
 // Create chat connector for communicating with the Bot Framework Service
-var connector = new builder.ChatConnector({
+var connector = new teams.TeamsChatConnector({
     appId: process.env.MicrosoftAppId,
     appPassword: process.env.MicrosoftAppPassword
 });
@@ -18,33 +19,43 @@ var connector = new builder.ChatConnector({
 server.post('/api/messages', connector.listen());
 
 // Receive messages from the user and respond by echoing each message back (prefixed with 'You said:')
-var bot = new builder.UniversalBot(connector);
+var bot = new builder.UniversalBot(connector, (session) => session.send("You said: %s", session.message.text));
 
-bot
-    .on('messageReaction', (session) => session.send("You said: %s", session.message.text))
-    .on('conversationUpdate', (msg) => {
-        var payload = {
-            teamId: msg.channelData.team.id,
-            members: []
-        };
+bot.on('conversationUpdate', (message) => {
+        var conversationId = message.address.conversation.id;
+        connector.fetchMembers(message.address.serviceUrl, conversationId, (err, result) => {
+            if (err) {
+                console.err("error");
+            } else {
+                let payload = {
+                    "teamId": teams.TeamsMessage.getConversationUpdateData(message).team.id,
+                    "members": result.map((m) => {
+                        return {
+                            "id": m.id,
+                            "name": m.name,
+                        };
+                    }),
+                };
 
-        msg.members.forEach(member => {
-            payload.members.add(member);
-        });
+                // オプションを定義
+                let options = {
+                    url: 'https://msopenhack.azurewebsites.net/api/trivia/register',
+                    method: 'POST',
+                    headers: {
+                        'Content-Type':'application/json'
+                    },
+                    json: true,
+                    form: payload,
+                };
 
-        var headers = {
-            'Content-Type':'application/json'
-        };
-
-        var options = {
-            url: '/api/trivia/register',
-            method: 'POST',
-            headers: headers,
-            json: true,
-            form: payload
-        };
-
-        request(options, function (error, response, body) {
-            // do nothing.
+                // リクエスト送信
+                request.post(options, (err, res, body) => {
+                    if (err) {
+                        console.log("error");
+                    } else {
+                        console.log(body);
+                    }
+                });
+            }
         });
     });
